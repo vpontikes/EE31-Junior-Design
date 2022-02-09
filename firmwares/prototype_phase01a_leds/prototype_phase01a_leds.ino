@@ -1,10 +1,14 @@
+#define CLAMP( x, lo, hi ) ( (x) < (lo) ? (lo) : ( (x) > (hi) ? (hi) : (x) ) )
 
 #define PIN_RED_LED 9
 #define PIN_GREEN_LED 10
-#define PIN_BLUE_LED 11
+#define PIN_BLUE_LED 6
 
 #define PIN_BLINKSWITCH_1 12
-#define PIN_BLINKSWITCH_1 13
+#define PIN_BLINKSWITCH_2 2
+
+#define PIN_BLINKPOT_1 A0
+#define PIN_BLINKPOT_2 A1
 
 #define BLINKSTATE_OFF 0
 #define BLINKSTATE_ON 1
@@ -15,8 +19,10 @@
 byte blinkstate = BLINKSTATE_OFF;
 byte blinkerrors = 5;
 
-byte blinkswitch_1;
-byte blinkswitch_2;
+volatile byte blinkswitch_highspeed = 0;
+
+byte blinkpot_1;
+byte blinkpot_2;
 
 char * blinkstatenames[] = { "OFF", "ON", "RUN", "SLEEP", "DIAGNOSTIC" };
 
@@ -45,29 +51,36 @@ void blink_run()
 	}
 
 	// Blink twice with ``duty cycle of 0.5 secs''.
-	for ( byte i = 0; i < 4; i ++ )
+	// Modulated by potentiometers 1 and 2.
+	for ( byte i = 0; i < 2; i ++ )
 	{
-		digitalWrite( PIN_GREEN_LED, i & 1 ? LOW : HIGH );
-		delay( 500 );
+		short d = blinkpot_1 << 1;
+		analogWrite( PIN_GREEN_LED, blinkpot_2 );
+		delay( CLAMP( 500 - d, 1, 1000 ) );
+		analogWrite( PIN_GREEN_LED, LOW );
+		delay( CLAMP( 500 + d, 1, 1000 ) );
 	}
 }
 
 void blink_sleep()
 {
 	// ``Blink at 4 Hz for 1 sec.''
-	for ( byte i = 0; i < 8; i ++ )
+	// Modified by `blinkswitch_highspeed`, although the 10x speedup is reduced to 5x.
+	for ( byte i = 0; i < ( blinkswitch_highspeed ? 40 : 8 ); i ++ )
 	{
 		digitalWrite( PIN_BLUE_LED, i & 1 ? LOW : HIGH );
-		delay( 125 );
+		delay( blinkswitch_highspeed ? 25 : 125 );
 	}
 
 	// ``Fade for 1 sec.''
+	// Arbitrarily tweaked to look good.
 	for ( byte f = 200; f > 0; f -- )
 	{
 		analogWrite( PIN_BLUE_LED, f );
 		delay( 5 );
 	}
-	
+
+	analogWrite( PIN_BLUE_LED, 0 );
 	blinkstate = BLINKSTATE_OFF;
 }
 
@@ -85,10 +98,35 @@ void blink_diagnostic()
 
 void ( * blinkstatefunctions[] )() = { blink_off, blink_on, blink_run, blink_sleep, blink_diagnostic };
 
+void isr_blinkswitch_1()
+{
+	if ( blinkstate != BLINKSTATE_RUN ) return;
+
+	blinkswitch_highspeed = 1;
+
+	Serial.println( "Entering high speed mode." );
+}
+
+void isr_blinkswitch_2()
+{
+	if ( blinkstate != BLINKSTATE_RUN ) return;
+	if ( blinkswitch_highspeed )
+	{
+		digitalWrite( PIN_RED_LED, HIGH );
+		Serial.println( "Enabling red LED." );
+	}
+	else
+	{
+		Serial.println( "Use switch #1 first." );
+	}
+
+	
+	// No way to reset the blue-LED-fast, red-LED-on status is specified.
+}
+
 void setup() 
 {
 	Serial.begin( 115200 );
-	Serial.println( "Serial initialized." );
 
 	pinMode( PIN_RED_LED, OUTPUT );
 	pinMode( PIN_GREEN_LED, OUTPUT );
@@ -97,10 +135,27 @@ void setup()
 	digitalWrite( PIN_RED_LED, LOW );
 	digitalWrite( PIN_GREEN_LED, LOW );
 	digitalWrite( PIN_BLUE_LED, LOW );
+
+	pinMode( PIN_BLINKSWITCH_1, INPUT );
+	pinMode( PIN_BLINKSWITCH_2, INPUT );
+
+	pinMode( PIN_BLINKPOT_1, INPUT );
+	pinMode( PIN_BLINKPOT_2, INPUT );
+
+	blinkpot_1 = analogRead( PIN_BLINKPOT_1 );
+	blinkpot_2 = analogRead( PIN_BLINKPOT_2 );
+
+	attachInterrupt( digitalPinToInterrupt( PIN_BLINKSWITCH_1 ), isr_blinkswitch_1, RISING );
+	attachInterrupt( digitalPinToInterrupt( PIN_BLINKSWITCH_2 ), isr_blinkswitch_2, FALLING );
+
+	Serial.println( "Ready." );
 }
 
 void loop()
 {
+	blinkpot_1 = analogRead( PIN_BLINKPOT_1 );
+	blinkpot_2 = analogRead( PIN_BLINKPOT_2 );
+
 	if ( Serial.available() )
 	{
 		byte r = Serial.read();
