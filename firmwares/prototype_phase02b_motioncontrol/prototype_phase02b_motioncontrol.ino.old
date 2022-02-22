@@ -1,0 +1,35 @@
+void setup()
+{
+	pinMode( 2, OUTPUT ); // IC Pin 2 -- Motor 0
+	pinMode( 3, OUTPUT ); // IC Pin 7 -- Motor 0
+
+	pinMode( 4, OUTPUT ); // IC Pin 10 -- Motor 1
+	pinMode( 5, OUTPUT ); // IC Pin 15 -- Motor 1
+}
+
+void loop()
+{
+	// !P2 && !P3 -> brake
+	// P2 && !P3 -> forwards
+	// !P2 && P3 -> backwards
+
+#	define S_BRAKE0 0
+#	define S_FORWARDS 1
+#	define S_BACKWARDS 2
+#	define S_BRAKE1 3
+
+	static byte s0;
+	static byte s1;
+
+	static byte speed = 225;
+
+	s0 = ( millis() >> 10 ) & 0x3;
+	s1 = ~s0 & 0x03;
+
+	analogWrite( 2, s0 == S_FORWARDS || S_BRAKE1  ? speed : 0 );
+	analogWrite( 3, s0 == S_BACKWARDS || S_BRAKE1 ? speed : 0 );
+
+	analogWrite( 4, s1 == S_FORWARDS || S_BRAKE1  ? speed : 0 );
+	analogWrite( 5, s1 == S_BACKWARDS || S_BRAKE1 ? speed : 0 );
+
+}
